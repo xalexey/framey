@@ -7,8 +7,9 @@ from pydantic import BaseModel
 from app.auth import get_current_user
 from app.database import (
     create_tables,
-    get_user_settings,
-    update_user_settings,
+    create_user,
+    get_camera_settings,
+    update_camera_settings,
     create_task,
     update_task_status,
     get_task,
@@ -31,6 +32,20 @@ def startup():
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 
+class UserCreate(BaseModel):
+    name: str
+
+
+@app.post("/api/users")
+def register_user(body: UserCreate):
+    user = create_user(body.name)
+    return {
+        "id": user["id"],
+        "name": user["name"],
+        "api_key": user["api_key"],
+    }
+
+
 class SettingsUpdate(BaseModel):
     line_y: int = 400
     offset: int = 6
@@ -50,6 +65,7 @@ def _run_processing(task_id: str, video_path: str, output_path: str, settings: d
 @app.post("/api/upload")
 async def upload_video(
     background_tasks: BackgroundTasks,
+    camera_code: str,
     file: UploadFile = File(...),
     user: dict = Depends(get_current_user),
 ):
@@ -66,9 +82,9 @@ async def upload_video(
     with open(video_path, "wb") as f:
         f.write(content)
 
-    create_task(task_id, user["id"], file.filename)
+    create_task(task_id, user["id"], camera_code, file.filename)
 
-    settings = get_user_settings(user["id"])
+    settings = get_camera_settings(user["id"], camera_code)
     background_tasks.add_task(_run_processing, task_id, video_path, output_path, settings)
 
     return {"task_id": task_id, "message": "Файл принят на обработку"}
@@ -81,6 +97,7 @@ def get_task_status(task_id: str, user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=404, detail="Task not found")
     return {
         "task_id": task["id"],
+        "camera_code": task["camera_code"],
         "status": task["status"],
         "car_count": task["car_count"],
         "filename": task["filename"],
@@ -95,6 +112,7 @@ def list_tasks(user: dict = Depends(get_current_user)):
     return [
         {
             "task_id": t["id"],
+            "camera_code": t["camera_code"],
             "status": t["status"],
             "car_count": t["car_count"],
             "filename": t["filename"],
@@ -106,9 +124,10 @@ def list_tasks(user: dict = Depends(get_current_user)):
 
 
 @app.get("/api/settings")
-def read_settings(user: dict = Depends(get_current_user)):
-    settings = get_user_settings(user["id"])
+def read_settings(camera_code: str, user: dict = Depends(get_current_user)):
+    settings = get_camera_settings(user["id"], camera_code)
     return {
+        "camera_code": camera_code,
         "line_y": settings["line_y"],
         "offset": settings["offset"],
         "confidence": settings["confidence"],
@@ -117,6 +136,6 @@ def read_settings(user: dict = Depends(get_current_user)):
 
 
 @app.put("/api/settings")
-def update_settings(body: SettingsUpdate, user: dict = Depends(get_current_user)):
-    update_user_settings(user["id"], body.model_dump())
+def update_settings(camera_code: str, body: SettingsUpdate, user: dict = Depends(get_current_user)):
+    update_camera_settings(user["id"], camera_code, body.model_dump())
     return {"message": "Settings updated"}

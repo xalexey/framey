@@ -14,12 +14,8 @@ def main():
             "INSERT INTO users (api_key, name) VALUES (?, ?)",
             ("test-key", "Test User"),
         )
-        user_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
-        conn.execute(
-            "INSERT INTO user_settings (user_id) VALUES (?)",
-            (user_id,),
-        )
         conn.commit()
+        user_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
         print(f"Created test user (id={user_id}) with API key: test-key")
     else:
         print("Test user already exists")
