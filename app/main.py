@@ -126,6 +126,8 @@ def list_tasks(user: dict = Depends(get_current_user)):
 @app.get("/api/settings")
 def read_settings(camera_code: str, user: dict = Depends(get_current_user)):
     settings = get_camera_settings(user["id"], camera_code)
+    if not settings:
+        raise HTTPException(status_code=404, detail="Camera settings not found")
     return {
         "camera_code": camera_code,
         "line_y": settings["line_y"],

@@ -81,7 +81,8 @@ def get_camera_settings(user_id: int, camera_code: str) -> dict:
     conn.close()
     if row:
         return dict(row)
-    return {"user_id": user_id, "camera_code": camera_code, "line_y": 400, "offset": 6, "confidence": 0.5, "car_class_id": 2}
+    #return {"user_id": user_id, "camera_code": camera_code, "line_y": 400, "offset": 6, "confidence": 0.5, "car_class_id": 2}
+    return None
 
 
 def update_camera_settings(user_id: int, camera_code: str, settings: dict):
