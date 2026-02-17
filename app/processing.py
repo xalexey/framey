@@ -4,16 +4,26 @@ import cv2
 import numpy as np
 import cvzone
 from ultralytics import YOLO
+from math import sqrt
 
 # Ensure project root is on path so sort.py can be imported
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from sort import Sort
 
+def check_object(x: int, y: int, settings: dict):
+    a = settings.get("a")
+    b = settings.get("b")
+    offset = settings.get("offset")
+    length = abs(a*x - y + b) / sqrt(a*a + 1)
+    if length <= offset:
+        return True
+    else:
+        return False
 
 def process_video(video_path: str, output_path: str, settings: dict) -> int:
     """Process a video file and return the number of cars counted."""
-    line_y = settings.get("line_y", 400)
-    offset = settings.get("offset", 6)
+    #line_y = settings.get("line_y", 400)
+    #offset = settings.get("offset", 6)
     confidence = settings.get("confidence", 0.5)
     car_class_id = settings.get("car_class_id", 2)
 
@@ -63,7 +73,8 @@ def process_video(video_path: str, output_path: str, settings: dict) -> int:
             cv2.circle(frame, (cx, cy), 4, (0, 0, 255), -1)
             cv2.putText(frame, f"{track_id}", (x1, y1 - 10), cv2.FONT_HERSHEY_PLAIN, 1, (255, 0, 0), 2)
 
-            if (line_y - offset) < cy < (line_y + offset):
+            #if (line_y - offset) < cy < (line_y + offset):
+            if check_object(cx, cy, settings):
                 if track_id not in counted_ids:
                     counted_ids.add(track_id)
 
