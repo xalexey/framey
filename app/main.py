@@ -47,7 +47,8 @@ def register_user(body: UserCreate):
 
 
 class SettingsUpdate(BaseModel):
-    line_y: int = 400
+    a: float = 0
+    b: float = 400
     offset: int = 6
     confidence: float = 0.5
     car_class_id: int = 2
@@ -130,7 +131,8 @@ def read_settings(camera_code: str, user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=404, detail="Camera settings not found")
     return {
         "camera_code": camera_code,
-        "line_y": settings["line_y"],
+        "a": settings["a"],
+        "b": settings["b"],
         "offset": settings["offset"],
         "confidence": settings["confidence"],
         "car_class_id": settings["car_class_id"],

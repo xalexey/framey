@@ -27,7 +27,8 @@ def create_tables():
         CREATE TABLE IF NOT EXISTS camera_settings (
             user_id INTEGER NOT NULL REFERENCES users(id),
             camera_code TEXT NOT NULL,
-            line_y INTEGER NOT NULL DEFAULT 400,
+            a REAL NOT NULL DEFAULT 0,
+            b REAL NOT NULL DEFAULT 400,
             offset INTEGER NOT NULL DEFAULT 6,
             confidence REAL NOT NULL DEFAULT 0.5,
             car_class_id INTEGER NOT NULL DEFAULT 2,
@@ -88,10 +89,11 @@ def get_camera_settings(user_id: int, camera_code: str) -> dict:
 def update_camera_settings(user_id: int, camera_code: str, settings: dict):
     conn = get_connection()
     conn.execute("""
-        INSERT INTO camera_settings (user_id, camera_code, line_y, offset, confidence, car_class_id)
-        VALUES (:user_id, :camera_code, :line_y, :offset, :confidence, :car_class_id)
+        INSERT INTO camera_settings (user_id, camera_code, a, b, offset, confidence, car_class_id)
+        VALUES (:user_id, :camera_code, :a, :b, :offset, :confidence, :car_class_id)
         ON CONFLICT(user_id, camera_code) DO UPDATE SET
-            line_y = :line_y,
+            a = :a,
+            b = :b,
             offset = :offset,
             confidence = :confidence,
             car_class_id = :car_class_id
