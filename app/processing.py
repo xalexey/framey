@@ -24,6 +24,8 @@ def process_video(video_path: str, output_path: str, settings: dict) -> int:
     """Process a video file and return the number of cars counted."""
     #line_y = settings.get("line_y", 400)
     #offset = settings.get("offset", 6)
+    a = settings.get("a")
+    b = settings.get("b")
     confidence = settings.get("confidence", 0.5)
     car_class_id = settings.get("car_class_id", 2)
 
@@ -63,7 +65,7 @@ def process_video(video_path: str, output_path: str, settings: dict) -> int:
         else:
             tracked_objects = tracker.update(np.array(detections))
 
-        cv2.line(frame, (0, line_y), (w, line_y), (0, 255, 0), 2)
+        cv2.line(frame, (0, int(b)), (w, int(a * w + b)), (0, 255, 0), 2)
 
         for track in tracked_objects:
             x1, y1, x2, y2, track_id = map(int, track)

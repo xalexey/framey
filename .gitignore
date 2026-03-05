@@ -6,3 +6,4 @@ uploads/
 output/
 video-input/
 .env
+.vscode/
