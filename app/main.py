@@ -106,8 +106,11 @@ def process_file(
 
     task_id = str(uuid.uuid4())
     ext = file_record["filename"].rsplit(".", 1)[-1].lower() if "." in file_record["filename"] else "mp4"
-    output_filename = f"{task_id}.{ext}"
+    output_filename = f"{file_id}.{ext}"
     output_path = os.path.join(OUTPUT_DIR, output_filename)
+
+    if os.path.exists(output_path):
+        os.remove(output_path)
 
     update_file_output_path(file_id, output_path)
     create_task(task_id, user["id"], file_record["camera_code"], file_record["filename"], file_id=file_id)
