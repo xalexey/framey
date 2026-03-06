@@ -35,10 +35,21 @@ def create_tables():
             PRIMARY KEY (user_id, camera_code)
         );
 
+        CREATE TABLE IF NOT EXISTS files (
+            id TEXT PRIMARY KEY,
+            user_id INTEGER NOT NULL REFERENCES users(id),
+            camera_code TEXT NOT NULL,
+            filename TEXT NOT NULL,
+            upload_path TEXT NOT NULL,
+            output_path TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
         CREATE TABLE IF NOT EXISTS tasks (
             id TEXT PRIMARY KEY,
             user_id INTEGER NOT NULL REFERENCES users(id),
             camera_code TEXT NOT NULL,
+            file_id TEXT REFERENCES files(id),
             status TEXT NOT NULL DEFAULT 'pending',
             filename TEXT NOT NULL,
             car_count INTEGER,
@@ -48,6 +59,17 @@ def create_tables():
         );
     """)
     conn.commit()
+    conn.close()
+    _migrate_tasks_add_file_id()
+
+
+def _migrate_tasks_add_file_id():
+    conn = get_connection()
+    cursor = conn.execute("PRAGMA table_info(tasks)")
+    columns = [row[1] for row in cursor.fetchall()]
+    if "file_id" not in columns:
+        conn.execute("ALTER TABLE tasks ADD COLUMN file_id TEXT REFERENCES files(id)")
+        conn.commit()
     conn.close()
 
 
@@ -102,11 +124,37 @@ def update_camera_settings(user_id: int, camera_code: str, settings: dict):
     conn.close()
 
 
-def create_task(task_id: str, user_id: int, camera_code: str, filename: str):
+def create_file(file_id: str, user_id: int, camera_code: str, filename: str, upload_path: str, output_path: str | None = None):
     conn = get_connection()
     conn.execute(
-        "INSERT INTO tasks (id, user_id, camera_code, status, filename) VALUES (?, ?, ?, 'pending', ?)",
-        (task_id, user_id, camera_code, filename),
+        "INSERT INTO files (id, user_id, camera_code, filename, upload_path, output_path) VALUES (?, ?, ?, ?, ?, ?)",
+        (file_id, user_id, camera_code, filename, upload_path, output_path),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_file(file_id: str, user_id: int) -> dict | None:
+    conn = get_connection()
+    row = conn.execute("SELECT * FROM files WHERE id = ? AND user_id = ?", (file_id, user_id)).fetchone()
+    conn.close()
+    if row:
+        return dict(row)
+    return None
+
+
+def update_file_output_path(file_id: str, output_path: str):
+    conn = get_connection()
+    conn.execute("UPDATE files SET output_path = ? WHERE id = ?", (output_path, file_id))
+    conn.commit()
+    conn.close()
+
+
+def create_task(task_id: str, user_id: int, camera_code: str, filename: str, file_id: str | None = None):
+    conn = get_connection()
+    conn.execute(
+        "INSERT INTO tasks (id, user_id, camera_code, file_id, status, filename) VALUES (?, ?, ?, ?, 'pending', ?)",
+        (task_id, user_id, camera_code, file_id, filename),
     )
     conn.commit()
     conn.close()

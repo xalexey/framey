@@ -2,6 +2,7 @@ import os
 import uuid
 
 from fastapi import FastAPI, UploadFile, File, Depends, HTTPException, BackgroundTasks
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from app.auth import get_current_user
@@ -10,6 +11,9 @@ from app.database import (
     create_user,
     get_camera_settings,
     update_camera_settings,
+    create_file,
+    get_file,
+    update_file_output_path,
     create_task,
     update_task_status,
     get_task,
@@ -65,7 +69,6 @@ def _run_processing(task_id: str, video_path: str, output_path: str, settings: d
 
 @app.post("/api/upload")
 async def upload_video(
-    background_tasks: BackgroundTasks,
     camera_code: str,
     file: UploadFile = File(...),
     user: dict = Depends(get_current_user),
@@ -74,21 +77,56 @@ async def upload_video(
     if ext not in ALLOWED_EXTENSIONS:
         raise HTTPException(status_code=400, detail=f"Unsupported file format. Allowed: {', '.join(ALLOWED_EXTENSIONS)}")
 
-    task_id = str(uuid.uuid4())
-    saved_filename = f"{task_id}.{ext}"
+    file_id = str(uuid.uuid4())
+    saved_filename = f"{file_id}.{ext}"
     video_path = os.path.join(UPLOAD_DIR, saved_filename)
-    output_path = os.path.join(OUTPUT_DIR, saved_filename)
 
     content = await file.read()
     with open(video_path, "wb") as f:
         f.write(content)
 
-    create_task(task_id, user["id"], camera_code, file.filename)
+    create_file(file_id, user["id"], camera_code, file.filename, video_path)
 
-    settings = get_camera_settings(user["id"], camera_code)
-    background_tasks.add_task(_run_processing, task_id, video_path, output_path, settings)
+    return {"file_id": file_id}
 
-    return {"task_id": task_id, "message": "Файл принят на обработку"}
+
+@app.post("/api/process")
+def process_file(
+    file_id: str,
+    background_tasks: BackgroundTasks,
+    user: dict = Depends(get_current_user),
+):
+    file_record = get_file(file_id, user["id"])
+    if not file_record:
+        raise HTTPException(status_code=404, detail="File not found")
+
+    settings = get_camera_settings(user["id"], file_record["camera_code"])
+    if not settings:
+        raise HTTPException(status_code=404, detail="Camera settings not found")
+
+    task_id = str(uuid.uuid4())
+    ext = file_record["filename"].rsplit(".", 1)[-1].lower() if "." in file_record["filename"] else "mp4"
+    output_filename = f"{task_id}.{ext}"
+    output_path = os.path.join(OUTPUT_DIR, output_filename)
+
+    update_file_output_path(file_id, output_path)
+    create_task(task_id, user["id"], file_record["camera_code"], file_record["filename"], file_id=file_id)
+
+    background_tasks.add_task(_run_processing, task_id, file_record["upload_path"], output_path, settings)
+
+    return {"task_id": task_id, "message": "Обработка запущена"}
+
+
+@app.get("/api/files/output/{file_id}")
+def download_output(file_id: str, user: dict = Depends(get_current_user)):
+    file_record = get_file(file_id, user["id"])
+    if not file_record:
+        raise HTTPException(status_code=404, detail="File not found")
+
+    if not file_record["output_path"] or not os.path.exists(file_record["output_path"]):
+        raise HTTPException(status_code=404, detail="Output file not yet available")
+
+    return FileResponse(file_record["output_path"], filename=file_record["filename"])
 
 
 @app.get("/api/tasks/{task_id}")
@@ -98,6 +136,7 @@ def get_task_status(task_id: str, user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=404, detail="Task not found")
     return {
         "task_id": task["id"],
+        "file_id": task["file_id"],
         "camera_code": task["camera_code"],
         "status": task["status"],
         "car_count": task["car_count"],
@@ -113,6 +152,7 @@ def list_tasks(user: dict = Depends(get_current_user)):
     return [
         {
             "task_id": t["id"],
+            "file_id": t["file_id"],
             "camera_code": t["camera_code"],
             "status": t["status"],
             "car_count": t["car_count"],
