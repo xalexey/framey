@@ -20,10 +20,10 @@ def check_object(x: int, y: int, settings: dict):
     else:
         return False
 
-def process_video(video_path: str, output_path: str, settings: dict) -> int:
+def process_video(video_path: str, output_path: str, settings: dict, task_id: str | None = None) -> int:
     """Process a video file and return the number of cars counted."""
-    #line_y = settings.get("line_y", 400)
-    #offset = settings.get("offset", 6)
+    from app.database import update_task_progress
+
     a = settings.get("a")
     b = settings.get("b")
     confidence = settings.get("confidence", 0.5)
@@ -38,32 +38,37 @@ def process_video(video_path: str, output_path: str, settings: dict) -> int:
     w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     fps = cap.get(cv2.CAP_PROP_FPS) or 30
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
 
     out = cv2.VideoWriter(output_path, cv2.VideoWriter_fourcc(*"mp4v"), fps, (w, h))
 
     counted_ids: set[int] = set()
+    frame_num = 0
+    tracked_objects = []
+    last_reported_progress = 0
 
     while True:
         success, frame = cap.read()
         if not success:
             break
 
-        results = model(frame, verbose=False)
+        if frame_num % 2 == 0:
+            results = model(frame, verbose=False)
 
-        detections = []
-        for result in results:
-            for box in result.boxes:
-                x1, y1, x2, y2 = map(int, box.xyxy[0])
-                conf = float(box.conf[0])
-                cls = int(box.cls[0])
+            detections = []
+            for result in results:
+                for box in result.boxes:
+                    x1, y1, x2, y2 = map(int, box.xyxy[0])
+                    conf = float(box.conf[0])
+                    cls = int(box.cls[0])
 
-                if cls == car_class_id and conf > confidence:
-                    detections.append([x1, y1, x2, y2, conf])
+                    if cls == car_class_id and conf > confidence:
+                        detections.append([x1, y1, x2, y2, conf])
 
-        if len(detections) == 0:
-            tracked_objects = []
-        else:
-            tracked_objects = tracker.update(np.array(detections))
+            if len(detections) == 0:
+                tracked_objects = []
+            else:
+                tracked_objects = tracker.update(np.array(detections))
 
         cv2.line(frame, (0, int(b)), (w, int(a * w + b)), (0, 255, 0), 2)
 
@@ -75,7 +80,6 @@ def process_video(video_path: str, output_path: str, settings: dict) -> int:
             cv2.circle(frame, (cx, cy), 4, (0, 0, 255), -1)
             cv2.putText(frame, f"{track_id}", (x1, y1 - 10), cv2.FONT_HERSHEY_PLAIN, 1, (255, 0, 0), 2)
 
-            #if (line_y - offset) < cy < (line_y + offset):
             if check_object(cx, cy, settings):
                 if track_id not in counted_ids:
                     counted_ids.add(track_id)
@@ -84,8 +88,18 @@ def process_video(video_path: str, output_path: str, settings: dict) -> int:
                     cv2.FONT_HERSHEY_PLAIN, 2, (0, 255, 0), 3)
 
         out.write(frame)
+        frame_num += 1
+
+        if task_id and total_frames > 0:
+            progress = int(frame_num / total_frames * 100)
+            if progress >= last_reported_progress + 5:
+                last_reported_progress = progress // 5 * 5
+                update_task_progress(task_id, last_reported_progress)
 
     cap.release()
     out.release()
+
+    if task_id:
+        update_task_progress(task_id, 100)
 
     return len(counted_ids)

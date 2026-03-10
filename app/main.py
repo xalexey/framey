@@ -61,7 +61,7 @@ class SettingsUpdate(BaseModel):
 def _run_processing(task_id: str, video_path: str, output_path: str, settings: dict):
     try:
         update_task_status(task_id, "processing")
-        car_count = process_video(video_path, output_path, settings)
+        car_count = process_video(video_path, output_path, settings, task_id=task_id)
         update_task_status(task_id, "done", car_count=car_count)
     except Exception as e:
         update_task_status(task_id, "error", error_message=str(e))
@@ -142,6 +142,7 @@ def get_task_status(task_id: str, user: dict = Depends(get_current_user)):
         "file_id": task["file_id"],
         "camera_code": task["camera_code"],
         "status": task["status"],
+        "progress": task["progress"],
         "car_count": task["car_count"],
         "filename": task["filename"],
         "created_at": task["created_at"],
@@ -158,6 +159,7 @@ def list_tasks(user: dict = Depends(get_current_user)):
             "file_id": t["file_id"],
             "camera_code": t["camera_code"],
             "status": t["status"],
+            "progress": t["progress"],
             "car_count": t["car_count"],
             "filename": t["filename"],
             "created_at": t["created_at"],

@@ -52,6 +52,7 @@ def create_tables():
             file_id TEXT REFERENCES files(id),
             status TEXT NOT NULL DEFAULT 'pending',
             filename TEXT NOT NULL,
+            progress INTEGER NOT NULL DEFAULT 0,
             car_count INTEGER,
             error_message TEXT,
             created_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -60,16 +61,18 @@ def create_tables():
     """)
     conn.commit()
     conn.close()
-    _migrate_tasks_add_file_id()
+    _migrate_tasks_table()
 
 
-def _migrate_tasks_add_file_id():
+def _migrate_tasks_table():
     conn = get_connection()
     cursor = conn.execute("PRAGMA table_info(tasks)")
     columns = [row[1] for row in cursor.fetchall()]
     if "file_id" not in columns:
         conn.execute("ALTER TABLE tasks ADD COLUMN file_id TEXT REFERENCES files(id)")
-        conn.commit()
+    if "progress" not in columns:
+        conn.execute("ALTER TABLE tasks ADD COLUMN progress INTEGER NOT NULL DEFAULT 0")
+    conn.commit()
     conn.close()
 
 
@@ -156,6 +159,13 @@ def create_task(task_id: str, user_id: int, camera_code: str, filename: str, fil
         "INSERT INTO tasks (id, user_id, camera_code, file_id, status, filename) VALUES (?, ?, ?, ?, 'pending', ?)",
         (task_id, user_id, camera_code, file_id, filename),
     )
+    conn.commit()
+    conn.close()
+
+
+def update_task_progress(task_id: str, progress: int):
+    conn = get_connection()
+    conn.execute("UPDATE tasks SET progress = ? WHERE id = ?", (progress, task_id))
     conn.commit()
     conn.close()
 
