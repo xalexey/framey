@@ -16,6 +16,10 @@ from app.database import (
     revoke_camera_permission,
     get_user_cameras,
     get_user_by_id,
+    is_admin,
+    add_admin,
+    remove_admin,
+    get_admins,
     create_file,
     get_file,
     update_file_output_path,
@@ -89,6 +93,12 @@ class SettingsUpdate(BaseModel):
 class PermissionGrant(BaseModel):
     user_id: int
     camera_code: str
+
+
+def get_current_admin(user: dict = Depends(get_current_user)) -> dict:
+    if not is_admin(user["id"]):
+        raise HTTPException(status_code=403, detail="Administrator access required")
+    return user
 
 
 def _run_processing(task_id: str, video_path: str, output_path: str, settings: dict):
@@ -236,16 +246,16 @@ def update_settings(camera_code: str, body: SettingsUpdate, user: dict = Depends
     return {"message": "Settings updated"}
 
 
-# --- Permission management endpoints ---
+# --- Permission management endpoints (admin only) ---
 
 @app.post("/api/permissions")
-def grant_permission(body: PermissionGrant, user: dict = Depends(get_current_user)):
+def grant_permission(body: PermissionGrant, admin: dict = Depends(get_current_admin)):
     grant_camera_permission(body.user_id, body.camera_code)
     return {"message": "Permission granted"}
 
 
 @app.delete("/api/permissions")
-def revoke_permission(user_id: int, camera_code: str, user: dict = Depends(get_current_user)):
+def revoke_permission(user_id: int, camera_code: str, admin: dict = Depends(get_current_admin)):
     revoke_camera_permission(user_id, camera_code)
     return {"message": "Permission revoked"}
 
@@ -254,6 +264,29 @@ def revoke_permission(user_id: int, camera_code: str, user: dict = Depends(get_c
 def list_permissions(user_id: int, user: dict = Depends(get_current_user)):
     cameras = get_user_cameras(user_id)
     return {"user_id": user_id, "cameras": cameras}
+
+
+# --- Admin management endpoints ---
+
+class AdminGrant(BaseModel):
+    user_id: int
+
+
+@app.get("/api/admins")
+def list_admins(admin: dict = Depends(get_current_admin)):
+    return get_admins()
+
+
+@app.post("/api/admins")
+def grant_admin(body: AdminGrant, admin: dict = Depends(get_current_admin)):
+    add_admin(body.user_id)
+    return {"message": "Admin granted"}
+
+
+@app.delete("/api/admins")
+def revoke_admin(user_id: int, admin: dict = Depends(get_current_admin)):
+    remove_admin(user_id)
+    return {"message": "Admin revoked"}
 
 
 # --- Worker endpoints ---

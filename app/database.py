@@ -40,6 +40,10 @@ def create_tables():
             PRIMARY KEY (user_id, camera_code)
         );
 
+        CREATE TABLE IF NOT EXISTS admins (
+            user_id INTEGER PRIMARY KEY REFERENCES users(id)
+        );
+
         CREATE TABLE IF NOT EXISTS files (
             id TEXT PRIMARY KEY,
             user_id INTEGER NOT NULL REFERENCES users(id),
@@ -227,6 +231,36 @@ def get_user_cameras(user_id: int) -> list[str]:
     ).fetchall()
     conn.close()
     return [row[0] for row in rows]
+
+
+def is_admin(user_id: int) -> bool:
+    conn = get_connection()
+    row = conn.execute("SELECT 1 FROM admins WHERE user_id = ?", (user_id,)).fetchone()
+    conn.close()
+    return row is not None
+
+
+def add_admin(user_id: int):
+    conn = get_connection()
+    conn.execute("INSERT OR IGNORE INTO admins (user_id) VALUES (?)", (user_id,))
+    conn.commit()
+    conn.close()
+
+
+def remove_admin(user_id: int):
+    conn = get_connection()
+    conn.execute("DELETE FROM admins WHERE user_id = ?", (user_id,))
+    conn.commit()
+    conn.close()
+
+
+def get_admins() -> list[dict]:
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT u.id, u.name FROM admins a JOIN users u ON u.id = a.user_id ORDER BY u.id"
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
 
 
 def create_file(file_id: str, user_id: int, camera_code: str, filename: str, upload_path: str, output_path: str | None = None):
