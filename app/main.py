@@ -11,13 +11,20 @@ from app.database import (
     create_user,
     get_camera_settings,
     update_camera_settings,
+    check_camera_permission,
+    grant_camera_permission,
+    revoke_camera_permission,
+    get_user_cameras,
+    get_user_by_id,
     create_file,
     get_file,
     update_file_output_path,
     create_task,
     update_task_status,
+    update_task_progress,
     get_task,
     get_tasks_for_user,
+    get_pending_task,
 )
 from app.processing import process_video
 
@@ -36,13 +43,33 @@ def startup():
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 
-class UserCreate(BaseModel):
+class UserUpdate(BaseModel):
     name: str
+    id: int
 
 
 @app.post("/api/users")
-def register_user(body: UserCreate):
-    user = create_user(body.name)
+def register_user(body: UserUpdate):
+    if body.id == 0:
+        user = create_user(body.name)
+    else:
+        user = get_user_by_id(body.id)
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+    
+    return {
+        "id": user["id"],
+        "name": user["name"],
+        "api_key": user["api_key"],
+    }
+
+
+@app.get("/api/users/{user_id}")
+def get_user(user_id: int):
+    user = get_user_by_id(user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
     return {
         "id": user["id"],
         "name": user["name"],
@@ -56,6 +83,12 @@ class SettingsUpdate(BaseModel):
     offset: int = 6
     confidence: float = 0.5
     car_class_id: int = 2
+    use_worker: bool = False
+
+
+class PermissionGrant(BaseModel):
+    user_id: int
+    camera_code: str
 
 
 def _run_processing(task_id: str, video_path: str, output_path: str, settings: dict):
@@ -77,6 +110,9 @@ async def upload_video(
     if ext not in ALLOWED_EXTENSIONS:
         raise HTTPException(status_code=400, detail=f"Unsupported file format. Allowed: {', '.join(ALLOWED_EXTENSIONS)}")
 
+    if not check_camera_permission(user["id"], camera_code):
+        raise HTTPException(status_code=403, detail="No permission to upload files for this camera")
+
     file_id = str(uuid.uuid4())
     saved_filename = f"{file_id}.{ext}"
     video_path = os.path.join(UPLOAD_DIR, saved_filename)
@@ -96,11 +132,14 @@ def process_file(
     background_tasks: BackgroundTasks,
     user: dict = Depends(get_current_user),
 ):
-    file_record = get_file(file_id, user["id"])
+    file_record = get_file(file_id)
     if not file_record:
         raise HTTPException(status_code=404, detail="File not found")
 
-    settings = get_camera_settings(user["id"], file_record["camera_code"])
+    if not check_camera_permission(user["id"], file_record["camera_code"]):
+        raise HTTPException(status_code=403, detail="No permission to process files for this camera")
+
+    settings = get_camera_settings(file_record["camera_code"])
     if not settings:
         raise HTTPException(status_code=404, detail="Camera settings not found")
 
@@ -115,14 +154,16 @@ def process_file(
     update_file_output_path(file_id, output_path)
     create_task(task_id, user["id"], file_record["camera_code"], file_record["filename"], file_id=file_id)
 
-    background_tasks.add_task(_run_processing, task_id, file_record["upload_path"], output_path, settings)
-
-    return {"task_id": task_id, "message": "Обработка запущена"}
+    if settings.get("use_worker"):
+        return {"task_id": task_id, "message": "Задача создана, ожидает обработки воркером"}
+    else:
+        background_tasks.add_task(_run_processing, task_id, file_record["upload_path"], output_path, settings)
+        return {"task_id": task_id, "message": "Обработка запущена"}
 
 
 @app.get("/api/files/output/{file_id}")
 def download_output(file_id: str, user: dict = Depends(get_current_user)):
-    file_record = get_file(file_id, user["id"])
+    file_record = get_file(file_id)
     if not file_record:
         raise HTTPException(status_code=404, detail="File not found")
 
@@ -134,7 +175,7 @@ def download_output(file_id: str, user: dict = Depends(get_current_user)):
 
 @app.get("/api/tasks/{task_id}")
 def get_task_status(task_id: str, user: dict = Depends(get_current_user)):
-    task = get_task(task_id, user["id"])
+    task = get_task(task_id)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
     return {
@@ -171,7 +212,9 @@ def list_tasks(user: dict = Depends(get_current_user)):
 
 @app.get("/api/settings")
 def read_settings(camera_code: str, user: dict = Depends(get_current_user)):
-    settings = get_camera_settings(user["id"], camera_code)
+    if not check_camera_permission(user["id"], camera_code):
+        raise HTTPException(status_code=403, detail="No permission for this camera")
+    settings = get_camera_settings(camera_code)
     if not settings:
         raise HTTPException(status_code=404, detail="Camera settings not found")
     return {
@@ -181,10 +224,108 @@ def read_settings(camera_code: str, user: dict = Depends(get_current_user)):
         "offset": settings["offset"],
         "confidence": settings["confidence"],
         "car_class_id": settings["car_class_id"],
+        "use_worker": bool(settings["use_worker"]),
     }
 
 
 @app.put("/api/settings")
 def update_settings(camera_code: str, body: SettingsUpdate, user: dict = Depends(get_current_user)):
-    update_camera_settings(user["id"], camera_code, body.model_dump())
+    if not check_camera_permission(user["id"], camera_code):
+        raise HTTPException(status_code=403, detail="No permission for this camera")
+    update_camera_settings(camera_code, body.model_dump())
     return {"message": "Settings updated"}
+
+
+# --- Permission management endpoints ---
+
+@app.post("/api/permissions")
+def grant_permission(body: PermissionGrant, user: dict = Depends(get_current_user)):
+    grant_camera_permission(body.user_id, body.camera_code)
+    return {"message": "Permission granted"}
+
+
+@app.delete("/api/permissions")
+def revoke_permission(user_id: int, camera_code: str, user: dict = Depends(get_current_user)):
+    revoke_camera_permission(user_id, camera_code)
+    return {"message": "Permission revoked"}
+
+
+@app.get("/api/permissions")
+def list_permissions(user_id: int, user: dict = Depends(get_current_user)):
+    cameras = get_user_cameras(user_id)
+    return {"user_id": user_id, "cameras": cameras}
+
+
+# --- Worker endpoints ---
+
+@app.get("/api/worker/tasks")
+def worker_get_task(user: dict = Depends(get_current_user)):
+    task = get_pending_task()
+    if not task:
+        return None
+
+    settings = get_camera_settings(task["camera_code"])
+    return {
+        "task_id": task["id"],
+        "file_id": task["file_id"],
+        "camera_code": task["camera_code"],
+        "filename": task["filename"],
+        "settings": {
+            "a": settings["a"],
+            "b": settings["b"],
+            "offset": settings["offset"],
+            "confidence": settings["confidence"],
+            "car_class_id": settings["car_class_id"],
+        } if settings else None,
+    }
+
+
+@app.get("/api/worker/files/{file_id}")
+def worker_download_file(file_id: str, user: dict = Depends(get_current_user)):
+    file_record = get_file(file_id)
+    if not file_record:
+        raise HTTPException(status_code=404, detail="File not found")
+
+    return FileResponse(file_record["upload_path"], filename=file_record["filename"])
+
+
+@app.post("/api/worker/tasks/{task_id}/progress")
+def worker_update_progress(task_id: str, progress: int, user: dict = Depends(get_current_user)):
+    update_task_status(task_id, "processing")
+    update_task_progress(task_id, progress)
+    return {"message": "Progress updated"}
+
+
+@app.post("/api/worker/tasks/{task_id}/result")
+async def worker_upload_result(
+    task_id: str,
+    car_count: int,
+    file: UploadFile = File(...),
+    error: str | None = None,
+    user: dict = Depends(get_current_user),
+):
+    if error:
+        update_task_status(task_id, "error", error_message=error)
+        return {"message": "Task marked as error"}
+
+    task_record = get_task(task_id)
+    if not task_record:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    file_record = get_file(task_record["file_id"])
+    if not file_record:
+        raise HTTPException(status_code=404, detail="File not found")
+
+    output_path = file_record["output_path"]
+    if not output_path:
+        ext = file_record["filename"].rsplit(".", 1)[-1].lower() if "." in file_record["filename"] else "mp4"
+        output_path = os.path.join(OUTPUT_DIR, f"{file_record['id']}.{ext}")
+        update_file_output_path(file_record["id"], output_path)
+
+    content = await file.read()
+    with open(output_path, "wb") as f:
+        f.write(content)
+
+    update_task_progress(task_id, 100)
+    update_task_status(task_id, "done", car_count=car_count)
+    return {"message": "Result uploaded"}
