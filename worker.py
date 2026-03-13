@@ -26,6 +26,8 @@ import tempfile
 import shutil
 from math import sqrt
 
+from datetime import datetime, UTC
+
 import cv2
 import numpy as np
 import cvzone
@@ -233,8 +235,8 @@ def main():
             print(f"  Downloading {filename}...")
             download_file(server_url, api_key, file_id, input_path)
 
-            print(f"  Processing...")
-            report_progress(server_url, api_key, task_id, 0)
+            print(f"  Processing... - {datetime.now(UTC)}")
+            report_progress(server_url, api_key, task_id, -1)
             car_count = process_video(
                 input_path, output_path, settings,
                 server_url=server_url, api_key=api_key, task_id=task_id,
@@ -242,7 +244,7 @@ def main():
 
             print(f"  Uploading result (cars counted: {car_count})...")
             upload_result(server_url, api_key, task_id, output_path, car_count)
-            print(f"  Done!")
+            print(f"  Done! - {datetime.now(UTC)}")
 
         except Exception as e:
             print(f"  Error: {e}")
