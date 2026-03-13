@@ -47,13 +47,19 @@ def startup():
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 
+def get_current_admin(user: dict = Depends(get_current_user)) -> dict:
+    if not is_admin(user["id"]):
+        raise HTTPException(status_code=403, detail="Administrator access required")
+    return user
+
+
 class UserUpdate(BaseModel):
     name: str
     id: int
 
 
 @app.post("/api/users")
-def register_user(body: UserUpdate):
+def register_user(body: UserUpdate, admin: dict = Depends(get_current_admin)):
     if body.id == 0:
         user = create_user(body.name)
     else:
@@ -69,7 +75,7 @@ def register_user(body: UserUpdate):
 
 
 @app.get("/api/users/{user_id}")
-def get_user(user_id: int):
+def get_user(user_id: int, admin: dict = Depends(get_current_admin)):
     user = get_user_by_id(user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
@@ -95,15 +101,10 @@ class PermissionGrant(BaseModel):
     camera_code: str
 
 
-def get_current_admin(user: dict = Depends(get_current_user)) -> dict:
-    if not is_admin(user["id"]):
-        raise HTTPException(status_code=403, detail="Administrator access required")
-    return user
-
-
 def _run_processing(task_id: str, video_path: str, output_path: str, settings: dict):
     try:
         update_task_status(task_id, "processing")
+        update_task_progress(task_id, -1)
         car_count = process_video(video_path, output_path, settings, task_id=task_id)
         update_task_status(task_id, "done", car_count=car_count)
     except Exception as e:
@@ -197,6 +198,7 @@ def get_task_status(task_id: str, user: dict = Depends(get_current_user)):
         "car_count": task["car_count"],
         "filename": task["filename"],
         "created_at": task["created_at"],
+        "started_at": task["started_at"],
         "finished_at": task["finished_at"],
     }
 
@@ -214,6 +216,7 @@ def list_tasks(user: dict = Depends(get_current_user)):
             "car_count": t["car_count"],
             "filename": t["filename"],
             "created_at": t["created_at"],
+            "started_at": t["started_at"],
             "finished_at": t["finished_at"],
         }
         for t in tasks

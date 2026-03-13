@@ -1,7 +1,7 @@
 import sqlite3
 import os
 import secrets
-from datetime import datetime
+from datetime import datetime, UTC
 
 DB_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "visitrack.db")
 
@@ -65,6 +65,7 @@ def create_tables():
             car_count INTEGER,
             error_message TEXT,
             created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            started_at TEXT,
             finished_at TEXT
         );
     """)
@@ -72,6 +73,7 @@ def create_tables():
     conn.close()
     _migrate_tasks_table()
     _migrate_camera_settings_v2()
+    _migrate_tasks_started_at()
 
 
 def _migrate_tasks_table():
@@ -83,6 +85,16 @@ def _migrate_tasks_table():
     if "progress" not in columns:
         conn.execute("ALTER TABLE tasks ADD COLUMN progress INTEGER NOT NULL DEFAULT 0")
     conn.commit()
+    conn.close()
+
+
+def _migrate_tasks_started_at():
+    conn = get_connection()
+    cursor = conn.execute("PRAGMA table_info(tasks)")
+    columns = [row[1] for row in cursor.fetchall()]
+    if "started_at" not in columns:
+        conn.execute("ALTER TABLE tasks ADD COLUMN started_at TEXT")
+        conn.commit()
     conn.close()
 
 
@@ -301,16 +313,29 @@ def create_task(task_id: str, user_id: int, camera_code: str, filename: str, fil
 
 def update_task_progress(task_id: str, progress: int):
     conn = get_connection()
-    conn.execute("UPDATE tasks SET progress = ? WHERE id = ?", (progress, task_id))
+    if progress == -1:
+        now = datetime.now(UTC)
+        conn.execute("UPDATE tasks SET progress = ?, started_at = ? WHERE id = ?", (0, now, task_id))
+    else:
+        conn.execute("UPDATE tasks SET progress = ? WHERE id = ?", (progress, task_id))
     conn.commit()
     conn.close()
 
 
 def update_task_status(task_id: str, status: str, car_count: int | None = None, error_message: str | None = None):
     conn = get_connection()
-    finished_at = datetime.utcnow().isoformat() if status in ("done", "error") else None
+    #now = datetime.utcnow().isoformat()
+    now = datetime.now(UTC)
+    #started_at = now if status == "processing" else None
+    finished_at = now if status in ("done", "error") else None
+    #conn.execute(
+    #    """UPDATE tasks SET status = ?, car_count = ?, error_message = ?, finished_at = ?,
+    #       started_at = COALESCE(CASE WHEN ? IS NOT NULL THEN ? ELSE started_at END, started_at)
+    #       WHERE id = ?""",
+    #    (status, car_count, error_message, finished_at, started_at, started_at, task_id),
+    #)
     conn.execute(
-        "UPDATE tasks SET status = ?, car_count = ?, error_message = ?, finished_at = ? WHERE id = ?",
+        """UPDATE tasks SET status = ?, car_count = ?, error_message = ?, finished_at = ? WHERE id = ?""",
         (status, car_count, error_message, finished_at, task_id),
     )
     conn.commit()
